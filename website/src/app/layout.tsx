@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Manrope, Playfair_Display } from "next/font/google";
 import FirebaseAnalytics from "@/components/FirebaseAnalytics";
+import Providers from "@/app/providers";
 import "./globals.css";
 
 const playfairDisplay = Playfair_Display({
@@ -30,7 +31,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${playfairDisplay.variable} ${manrope.variable} antialiased`}>
         <FirebaseAnalytics />
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

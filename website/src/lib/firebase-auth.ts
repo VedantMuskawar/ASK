@@ -11,7 +11,7 @@ import type { FirebaseError } from "firebase/app";
 
 import { firebaseApp } from "@/lib/firebase";
 
-import { createUserProfile, getUserProfile, UserProfile } from "@/lib/firestore-users";
+import { createUserProfile, getUserProfile, getUserProfileByPhone } from "@/lib/firestore-users";
 
 export const firebaseAuth = getAuth(firebaseApp);
 
@@ -153,4 +153,63 @@ export async function signUpUser({
 export async function canUserLogin(uid: string): Promise<boolean> {
   const user = await getUserProfile(uid);
   return !!user && user.isActive;
+}
+
+export async function hasUserProfile(uid: string): Promise<boolean> {
+  const user = await getUserProfile(uid);
+  return !!user;
+}
+
+export async function canUserLoginByPhone(phone: string): Promise<boolean> {
+  const user = await getUserProfileByPhone(phone);
+  return !!user && user.isActive;
+}
+
+export async function getUserFirstName(uid: string, phone?: string | null): Promise<string | null> {
+  try {
+    const userByUid = await getUserProfile(uid);
+    const firstNameByUid = userByUid?.firstName?.trim();
+    if (firstNameByUid) {
+      return firstNameByUid;
+    }
+  } catch {
+    // Fall through to phone-based lookup when uid lookup fails transiently.
+  }
+
+  if (!phone) {
+    return null;
+  }
+
+  try {
+    const userByPhone = await getUserProfileByPhone(phone);
+    const firstNameByPhone = userByPhone?.firstName?.trim();
+    return firstNameByPhone ? firstNameByPhone : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getUserRole(
+  uid: string,
+  phone?: string | null,
+): Promise<"customer" | "admin" | null> {
+  try {
+    const userByUid = await getUserProfile(uid);
+    if (userByUid?.role) {
+      return userByUid.role;
+    }
+  } catch {
+    // Fall through to phone-based lookup when uid lookup fails transiently.
+  }
+
+  if (!phone) {
+    return null;
+  }
+
+  try {
+    const userByPhone = await getUserProfileByPhone(phone);
+    return userByPhone?.role ?? null;
+  } catch {
+    return null;
+  }
 }

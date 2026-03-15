@@ -2,17 +2,20 @@
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { ConfirmationResult } from 'firebase/auth';
-import { MapPin, Navigation, ShoppingCart, User, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ChevronLeft, MapPin, Navigation, ShoppingCart, User, X } from 'lucide-react';
+import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 
 import {
-  firebaseSignOut,
+  firebaseAuth,
+  canUserLoginByPhone,
   getFirebaseAuthErrorMessage,
-  onFirebaseAuthStateChanged,
+  firebaseSignOut,
   requestPhoneOtp,
   verifyPhoneOtp,
   canUserLogin,
 } from '@/lib/firebase-auth';
+import { useAuth } from '@/lib/auth-context';
 import SignUpForm from './SignUpForm';
 
 const COUNTRY_CODES = [
@@ -162,13 +165,11 @@ function LocationModal({
 
 function AccountModal({
   user,
-  requiresSignUp,
   onSignUpCompleted,
   onSignOut,
   onClose,
 }: {
   user: string | null;
-  requiresSignUp: boolean;
   onSignUpCompleted: () => void;
   onSignOut: () => Promise<void>;
   onClose: () => void;
@@ -180,14 +181,21 @@ function AccountModal({
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [showSignUp, setShowSignUp] = useState(requiresSignUp);
+  const [showSignUp, setShowSignUp] = useState(false);
+  const [isSignUpFormComplete, setIsSignUpFormComplete] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState(1);
   const hasRequestedOtp = confirmationResult !== null;
   const selectedCountry = COUNTRY_CODES.find((country) => country.dialCode === countryCode) ?? COUNTRY_CODES[0];
-  const shouldShowSignUp = showSignUp || (Boolean(user) && requiresSignUp);
+  const shouldShowSignUp = showSignUp;
+  const isPublicSignUpFlow = shouldShowSignUp;
+  const shouldPreventSignUpClose = shouldShowSignUp && !isSignUpFormComplete;
 
-  useEffect(() => {
-    setShowSignUp(requiresSignUp);
-  }, [requiresSignUp]);
+  const handleAttemptClose = () => {
+    if (shouldPreventSignUpClose) {
+      return;
+    }
+    onClose();
+  };
 
   const handleSendOtp = async () => {
     const phoneDigits = phoneNumber.replace(/\D/g, '');
@@ -208,6 +216,12 @@ function AccountModal({
 
     try {
       const e164PhoneNumber = `${selectedCountry.dialCode}${phoneDigits}`;
+      const allowed = await canUserLoginByPhone(e164PhoneNumber);
+      if (!allowed) {
+        setStatus('Sign Up Before Login');
+        return;
+      }
+
       const result = await requestPhoneOtp(e164PhoneNumber, 'phone-auth-recaptcha');
       setConfirmationResult(result);
       setStatus('OTP sent. Enter the 6-digit code.');
@@ -234,13 +248,15 @@ function AccountModal({
     try {
       await verifyPhoneOtp(confirmationResult, otpCode);
       // Check if user exists in USERS collection
-      const { firebaseAuth } = await import('@/lib/firebase-auth');
       const user = firebaseAuth.currentUser;
       if (user) {
         const allowed = await canUserLogin(user.uid);
         if (!allowed) {
-          setShowSignUp(true);
-          setStatus('Complete sign up to continue.');
+          await firebaseSignOut();
+          setShowSignUp(false);
+          setConfirmationResult(null);
+          setOtpCode('');
+          setStatus('Sign Up Before Login');
           return;
         }
       }
@@ -257,49 +273,121 @@ function AccountModal({
 
   return (
     <>
-      <Backdrop onClose={onClose} />
+      <Backdrop onClose={handleAttemptClose} />
       <ModalPanel>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold tracking-tight text-(--foreground-strong)">
-            {user ? `Hi, ${user}` : 'Login'}
+        <div className="mb-4 grid grid-cols-[auto_1fr_auto] items-center">
+          {isPublicSignUpFlow ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (shouldPreventSignUpClose) {
+                  return;
+                }
+                setTransitionDirection(-1);
+                setShowSignUp(false);
+                setIsSignUpFormComplete(false);
+                setStatus('');
+                setError('');
+              }}
+              aria-label="Back to login"
+              className="justify-self-start rounded-full p-1 text-(--soft-text) transition hover:text-(--foreground-strong)"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          ) : (
+            <span />
+          )}
+
+          <h2 className="text-center text-sm font-semibold tracking-tight text-(--foreground-strong)">
+            {isPublicSignUpFlow ? 'Sign up' : user ? `Hi, ${user}` : 'Login'}
           </h2>
+
           <button
-            onClick={onClose}
+            onClick={handleAttemptClose}
             aria-label="Close"
-            className="rounded-full p-1 text-(--soft-text) transition hover:text-(--foreground-strong)"
+            className="justify-self-end rounded-full p-1 text-(--soft-text) transition hover:text-(--foreground-strong)"
           >
             <X size={15} />
           </button>
         </div>
 
-        {shouldShowSignUp ? (
-          <div className="space-y-3">
-            <SignUpForm
-              onSuccess={() => {
-                setShowSignUp(false);
-                onSignUpCompleted();
-                setStatus('Sign up complete. You can now use your account.');
-                setTimeout(onClose, 700);
+        <AnimatePresence mode="wait" initial={false} custom={transitionDirection}>
+          {shouldShowSignUp ? (
+            <motion.div
+              key="signup"
+              custom={transitionDirection}
+              variants={{
+                enter: (direction: number) => ({ opacity: 0, x: direction > 0 ? 28 : -28 }),
+                center: { opacity: 1, x: 0 },
+                exit: (direction: number) => ({ opacity: 0, x: direction > 0 ? -28 : 28 }),
               }}
-            />
-          </div>
-        ) : user ? (
-          <div className="space-y-4">
-            <p className="text-sm text-(--muted)">
-              Signed in as <span className="text-(--foreground-strong)">{user}</span>
-            </p>
-            <button
-              onClick={async () => {
-                await onSignOut();
-                onClose();
-              }}
-              className="w-full rounded-xl border border-(--border) py-2.5 text-sm text-(--muted) transition hover:border-(--accent) hover:text-(--foreground-strong)"
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="space-y-3"
             >
-              Sign out
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
+              <SignUpForm
+                onSuccess={() => {
+                  setIsSignUpFormComplete(false);
+                  setShowSignUp(false);
+                  onSignUpCompleted();
+                  setStatus('Sign up complete. You can now use your account.');
+                  setTimeout(onClose, 700);
+                }}
+                onAlreadyRegistered={() => {
+                  setTransitionDirection(-1);
+                  setIsSignUpFormComplete(false);
+                  setShowSignUp(false);
+                  setError('');
+                  setStatus('Already a user. Please login.');
+                }}
+                onCompletionChange={setIsSignUpFormComplete}
+              />
+            </motion.div>
+          ) : user ? (
+            <motion.div
+              key="signed-in"
+              custom={transitionDirection}
+              variants={{
+                enter: (direction: number) => ({ opacity: 0, x: direction > 0 ? 28 : -28 }),
+                center: { opacity: 1, x: 0 },
+                exit: (direction: number) => ({ opacity: 0, x: direction > 0 ? -28 : 28 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="space-y-4"
+            >
+              <p className="text-sm text-(--muted)">
+                Signed in as <span className="text-(--foreground-strong)">{user}</span>
+              </p>
+              <button
+                onClick={async () => {
+                  await onSignOut();
+                  onClose();
+                }}
+                className="w-full rounded-xl border border-(--border) py-2.5 text-sm text-(--muted) transition hover:border-(--accent) hover:text-(--foreground-strong)"
+              >
+                Sign out
+              </button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="login"
+              custom={transitionDirection}
+              variants={{
+                enter: (direction: number) => ({ opacity: 0, x: direction > 0 ? 28 : -28 }),
+                center: { opacity: 1, x: 0 },
+                exit: (direction: number) => ({ opacity: 0, x: direction > 0 ? -28 : 28 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="space-y-3"
+            >
             <div className="flex items-center gap-2">
               <div className="relative shrink-0" style={{ minWidth: 0, width: 'auto', display: 'inline-block' }}>
                 <select
@@ -362,15 +450,26 @@ function AccountModal({
             {!hasRequestedOtp && (
               <p className="text-center text-xs text-(--muted)">
                 New here?{' '}
-                <a href="#" className="text-(--foreground-strong) underline underline-offset-2 hover:text-(--accent)">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransitionDirection(1);
+                    setIsSignUpFormComplete(false);
+                    setShowSignUp(true);
+                    setStatus('');
+                    setError('');
+                  }}
+                  className="text-(--foreground-strong) underline underline-offset-2 hover:text-(--accent)"
+                >
                   Sign up
-                </a>
+                </button>
               </p>
             )}
             <div id="phone-auth-recaptcha" />
             <p className="text-center text-xs text-(--muted)">Use your mobile number to sign in securely.</p>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </ModalPanel>
     </>
   );
@@ -378,35 +477,93 @@ function AccountModal({
 
 type ActiveModal = 'location' | 'account' | null;
 
-export default function Header() {
-  const prefersReducedMotion = useReducedMotion();
-  const [modal, setModal] = useState<ActiveModal>(null);
-  const [location, setLocation] = useState<string | null>(null);
-  const [user, setUser] = useState<string | null>(null);
-  const [requiresSignUp, setRequiresSignUp] = useState(false);
-  const [cartCount] = useState(3);
+type HeaderVariant = 'default' | 'admin-workspace';
+
+type WorkspaceTab = 'workspace' | 'admin';
+
+function WorkspaceSwitcher({
+  active,
+  className = '',
+  reducedMotion = false,
+}: {
+  active: WorkspaceTab;
+  className?: string;
+  reducedMotion?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const marketplaceRef = useRef<HTMLAnchorElement | null>(null);
+  const adminRef = useRef<HTMLAnchorElement | null>(null);
+  const [pill, setPill] = useState({ x: 0, width: 0, ready: false });
 
   useEffect(() => {
-    const unsubscribe = onFirebaseAuthStateChanged((firebaseUser) => {
-      if (!firebaseUser) {
-        setUser(null);
-        setRequiresSignUp(false);
+    const updatePill = () => {
+      const activeEl = active === 'workspace' ? marketplaceRef.current : adminRef.current;
+
+      if (!containerRef.current || !activeEl) {
         return;
       }
 
-      setUser(firebaseUser.phoneNumber ?? null);
-      void canUserLogin(firebaseUser.uid)
-        .then((allowed) => {
-          setRequiresSignUp(!allowed);
-        })
-        .catch(() => {
-          // Keep existing behavior when profile lookup fails unexpectedly.
-          setRequiresSignUp(false);
-        });
-    });
+      setPill({
+        x: activeEl.offsetLeft,
+        width: activeEl.offsetWidth,
+        ready: true,
+      });
+    };
 
-    return unsubscribe;
-  }, []);
+    updatePill();
+    window.addEventListener('resize', updatePill);
+
+    return () => {
+      window.removeEventListener('resize', updatePill);
+    };
+  }, [active]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative isolate inline-flex items-center rounded-full border border-(--border) bg-(--surface) p-1 ${className}`}
+    >
+      <motion.div
+        aria-hidden
+        initial={false}
+        animate={{ x: pill.x, width: pill.width, opacity: pill.ready ? 1 : 0 }}
+        transition={
+          reducedMotion
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 150, damping: 20, mass: 0.9 }
+        }
+        className="absolute bottom-1 left-0 top-1 z-0 rounded-full border border-(--accent) bg-(--accent)"
+      />
+
+      <Link
+        href="/"
+        ref={marketplaceRef}
+        className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-300 ${
+          active === 'workspace' ? 'text-(--accent-contrast)' : 'text-foreground hover:text-(--foreground-strong)'
+        }`}
+      >
+        Marketplace
+      </Link>
+
+      <Link
+        href="/admin_workspace"
+        ref={adminRef}
+        className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-300 ${
+          active === 'admin' ? 'text-(--accent-contrast)' : 'text-foreground hover:text-(--foreground-strong)'
+        }`}
+      >
+        Admin Workspace
+      </Link>
+    </div>
+  );
+}
+
+export default function Header({ variant = 'default' }: { variant?: HeaderVariant }) {
+  const prefersReducedMotion = useReducedMotion();
+  const [modal, setModal] = useState<ActiveModal>(null);
+  const [location, setLocation] = useState<string | null>(null);
+  const [cartCount] = useState(3);
+  const { user, isAdmin, signOut: authSignOut } = useAuth();
 
   const toggle = (value: ActiveModal) => setModal((prev) => (prev === value ? null : value));
   const close = () => setModal(null);
@@ -426,51 +583,94 @@ export default function Header() {
               className="pointer-events-none absolute inset-x-10 top-0 h-px bg-linear-to-r from-transparent via-white/70 to-transparent"
             />
 
-            <a
-              href="#top"
-              className="mr-auto shrink-0 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-[0.68rem] font-semibold tracking-[0.22em] text-(--foreground-strong) shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
-            >
-              ASK BUILDEASE
-            </a>
+            {variant === 'admin-workspace' ? (
+              <>
+                <WorkspaceSwitcher active="admin" className="mr-auto" reducedMotion={Boolean(prefersReducedMotion)} />
+                <Link
+                  href="/admin_workspace#products"
+                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  Products
+                </Link>
+                <Link
+                  href="/admin_workspace#orders"
+                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  Orders
+                </Link>
+                <Link
+                  href="/admin_workspace#sales"
+                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  Sales
+                </Link>
+                <Link
+                  href="/admin_workspace#customers"
+                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  Customers
+                </Link>
+                <button
+                  onClick={() => toggle('account')}
+                  aria-expanded={modal === 'account'}
+                  aria-haspopup="dialog"
+                  className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  <User size={12} />
+                  <span className="max-w-20 truncate">{user ?? 'Login'}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <a
+                  href="#top"
+                  className="mr-auto shrink-0 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-[0.68rem] font-semibold tracking-[0.22em] text-(--foreground-strong) shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
+                >
+                  ASK BUILDEASE
+                </a>
 
-            <button
-              onClick={() => toggle('location')}
-              aria-expanded={modal === 'location'}
-              aria-haspopup="dialog"
-              className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
-            >
-              <MapPin size={12} />
-              <span className="max-w-22 truncate">{location ?? 'Set location'}</span>
-            </button>
+                <button
+                  onClick={() => toggle('location')}
+                  aria-expanded={modal === 'location'}
+                  aria-haspopup="dialog"
+                  className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  <MapPin size={12} />
+                  <span className="max-w-22 truncate">{location ?? 'Set location'}</span>
+                </button>
 
-            <button
-              onClick={() => toggle('account')}
-              aria-expanded={modal === 'account'}
-              aria-haspopup="dialog"
-              className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
-            >
-              <User size={12} />
-              <span className="max-w-20 truncate">{user ?? 'Login'}</span>
-            </button>
+                {isAdmin && <WorkspaceSwitcher active="workspace" reducedMotion={Boolean(prefersReducedMotion)} />}
 
-            <button
-              aria-label={`Cart, ${cartCount} item${cartCount !== 1 ? 's' : ''}`}
-              className="relative rounded-full border border-(--border) bg-(--surface) p-2 text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
-            >
-              <ShoppingCart size={16} />
-              {cartCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-(--accent) text-[9px] font-bold leading-none text-(--accent-contrast)">
-                  {cartCount > 9 ? '9+' : cartCount}
-                </span>
-              )}
-            </button>
+                <button
+                  onClick={() => toggle('account')}
+                  aria-expanded={modal === 'account'}
+                  aria-haspopup="dialog"
+                  className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  <User size={12} />
+                  <span className="max-w-20 truncate">{user ?? 'Login'}</span>
+                </button>
 
-            <a
-              href="#about"
-              className="hidden rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold tracking-[0.12em] text-foreground transition hover:border-(--border) hover:bg-(--surface) sm:block"
-            >
-              ABOUT US
-            </a>
+                <button
+                  aria-label={`Cart, ${cartCount} item${cartCount !== 1 ? 's' : ''}`}
+                  className="relative rounded-full border border-(--border) bg-(--surface) p-2 text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                >
+                  <ShoppingCart size={16} />
+                  {cartCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-(--accent) text-[9px] font-bold leading-none text-(--accent-contrast)">
+                      {cartCount > 9 ? '9+' : cartCount}
+                    </span>
+                  )}
+                </button>
+
+                <a
+                  href="#about"
+                  className="hidden rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold tracking-[0.12em] text-foreground transition hover:border-(--border) hover:bg-(--surface) sm:block"
+                >
+                  ABOUT US
+                </a>
+              </>
+            )}
           </nav>
         </div>
       </motion.header>
@@ -490,9 +690,10 @@ export default function Header() {
           <AccountModal
             key="account"
             user={user}
-            requiresSignUp={requiresSignUp}
-            onSignUpCompleted={() => setRequiresSignUp(false)}
-            onSignOut={firebaseSignOut}
+            onSignUpCompleted={() => {
+              // AuthContext's onAuthStateChanged listener handles the user update.
+            }}
+            onSignOut={authSignOut}
             onClose={close}
           />
         )}
