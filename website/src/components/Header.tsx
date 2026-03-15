@@ -558,15 +558,50 @@ function WorkspaceSwitcher({
   );
 }
 
-export default function Header({ variant = 'default' }: { variant?: HeaderVariant }) {
+export default function Header({
+  variant = 'default',
+  onAdminSectionChange,
+}: {
+  variant?: HeaderVariant;
+  onAdminSectionChange?: (section: string) => void;
+}) {
   const prefersReducedMotion = useReducedMotion();
   const [modal, setModal] = useState<ActiveModal>(null);
   const [location, setLocation] = useState<string | null>(null);
   const [cartCount] = useState(3);
+  const [activeAdminSection, setActiveAdminSection] = useState('');
   const { user, isAdmin, signOut: authSignOut } = useAuth();
+  const onAdminSectionChangeRef = useRef(onAdminSectionChange);
+
+  useEffect(() => {
+    onAdminSectionChangeRef.current = onAdminSectionChange;
+  }, [onAdminSectionChange]);
+
+  useEffect(() => {
+    if (variant !== 'admin-workspace') {
+      return;
+    }
+
+    const syncActiveSection = () => {
+      const section = window.location.hash.replace('#', '').trim();
+      setActiveAdminSection(section);
+      onAdminSectionChangeRef.current?.(section || 'workspace');
+    };
+
+    syncActiveSection();
+    window.addEventListener('hashchange', syncActiveSection);
+
+    return () => {
+      window.removeEventListener('hashchange', syncActiveSection);
+    };
+  }, [variant]);
 
   const toggle = (value: ActiveModal) => setModal((prev) => (prev === value ? null : value));
   const close = () => setModal(null);
+  const handleAdminNavClick = (section: string) => {
+    setActiveAdminSection(section);
+    onAdminSectionChangeRef.current?.(section);
+  };
 
   return (
     <>
@@ -588,25 +623,56 @@ export default function Header({ variant = 'default' }: { variant?: HeaderVarian
                 <WorkspaceSwitcher active="admin" className="mr-auto" reducedMotion={Boolean(prefersReducedMotion)} />
                 <Link
                   href="/admin_workspace#products"
-                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                  onClick={() => handleAdminNavClick('products')}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    activeAdminSection === 'products'
+                      ? 'border-(--accent) bg-(--accent) text-(--accent-contrast)'
+                      : 'border-(--border) bg-(--surface) text-foreground hover:border-(--accent) hover:bg-(--surface-soft)'
+                  }`}
                 >
                   Products
                 </Link>
                 <Link
+                  href="/admin_workspace#vendors"
+                  onClick={() => handleAdminNavClick('vendors')}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    activeAdminSection === 'vendors'
+                      ? 'border-(--accent) bg-(--accent) text-(--accent-contrast)'
+                      : 'border-(--border) bg-(--surface) text-foreground hover:border-(--accent) hover:bg-(--surface-soft)'
+                  }`}
+                >
+                  Vendors
+                </Link>
+                <Link
                   href="/admin_workspace#orders"
-                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                  onClick={() => handleAdminNavClick('orders')}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    activeAdminSection === 'orders'
+                      ? 'border-(--accent) bg-(--accent) text-(--accent-contrast)'
+                      : 'border-(--border) bg-(--surface) text-foreground hover:border-(--accent) hover:bg-(--surface-soft)'
+                  }`}
                 >
                   Orders
                 </Link>
                 <Link
                   href="/admin_workspace#sales"
-                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                  onClick={() => handleAdminNavClick('sales')}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    activeAdminSection === 'sales'
+                      ? 'border-(--accent) bg-(--accent) text-(--accent-contrast)'
+                      : 'border-(--border) bg-(--surface) text-foreground hover:border-(--accent) hover:bg-(--surface-soft)'
+                  }`}
                 >
                   Sales
                 </Link>
                 <Link
                   href="/admin_workspace#customers"
-                  className="rounded-full border border-(--border) bg-(--surface) px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                  onClick={() => handleAdminNavClick('customers')}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    activeAdminSection === 'customers'
+                      ? 'border-(--accent) bg-(--accent) text-(--accent-contrast)'
+                      : 'border-(--border) bg-(--surface) text-foreground hover:border-(--accent) hover:bg-(--surface-soft)'
+                  }`}
                 >
                   Customers
                 </Link>

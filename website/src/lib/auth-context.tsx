@@ -21,11 +21,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Read cached display name from localStorage for instant restore on page load.
-  const [user, setUserState] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(STORAGE_KEY);
-  });
+  // Keep the initial render deterministic between server and client.
+  // We restore cached user info only after mount to avoid hydration mismatch.
+  const [user, setUserState] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const updateUser = useCallback((name: string | null) => {
