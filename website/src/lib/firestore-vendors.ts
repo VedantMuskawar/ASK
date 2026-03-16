@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   onSnapshot,
@@ -18,12 +19,82 @@ export interface VendorRecord {
   vendorID: string;
   vendorName: string;
   vendorPhoneNumber: string;
+  vendorAddress: string;
   products: Record<string, boolean>;
   category: string;
-  lead_time_days: number;
   status: string;
+  documents?: {
+    marketplaceAgreement?: {
+      isCompleted?: boolean;
+      executedDay?: string;
+      executedMonth?: string;
+      executedYear?: string;
+      marketplaceName?: string;
+      marketplaceRegisteredOffice?: string;
+      supplierLegalName?: string;
+      supplierBusinessAddress?: string;
+      supplierGstNumber?: string;
+      jurisdiction?: string;
+      confirmations?: {
+        documentationTrue?: boolean;
+        allowAuditAndVerification?: boolean;
+        qualityAndCompliance?: boolean;
+        commercialAndPaymentTerms?: boolean;
+        indemnityAndConfidentiality?: boolean;
+        terminationAndDisputeResolution?: boolean;
+        finalConsent?: boolean;
+      };
+      acceptedAt?: Timestamp | FieldValue;
+      updatedAt?: Timestamp | FieldValue;
+    };
+  };
   created_at: Timestamp | FieldValue;
   updated_at: Timestamp | FieldValue;
+}
+
+export interface VendorMarketplaceAgreement {
+  isCompleted: boolean;
+  executedDay: string;
+  executedMonth: string;
+  executedYear: string;
+  marketplaceName: string;
+  marketplaceRegisteredOffice: string;
+  supplierLegalName: string;
+  supplierBusinessAddress: string;
+  supplierGstNumber: string;
+  jurisdiction: string;
+  confirmations: {
+    documentationTrue: boolean;
+    allowAuditAndVerification: boolean;
+    qualityAndCompliance: boolean;
+    commercialAndPaymentTerms: boolean;
+    indemnityAndConfidentiality: boolean;
+    terminationAndDisputeResolution: boolean;
+    finalConsent: boolean;
+  };
+  acceptedAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface VendorMarketplaceAgreementInput {
+  executedDay: string;
+  executedMonth: string;
+  executedYear: string;
+  marketplaceName: string;
+  marketplaceRegisteredOffice: string;
+  supplierLegalName: string;
+  supplierBusinessAddress: string;
+  supplierGstNumber: string;
+  jurisdiction: string;
+  confirmations: {
+    documentationTrue: boolean;
+    allowAuditAndVerification: boolean;
+    qualityAndCompliance: boolean;
+    commercialAndPaymentTerms: boolean;
+    indemnityAndConfidentiality: boolean;
+    terminationAndDisputeResolution: boolean;
+    finalConsent: boolean;
+  };
 }
 
 export interface VendorDoc extends Omit<VendorRecord, 'created_at' | 'updated_at'> {
@@ -34,9 +105,9 @@ export interface VendorDoc extends Omit<VendorRecord, 'created_at' | 'updated_at
 export interface VendorInput {
   vendorName: string;
   vendorPhoneNumber: string;
+  vendorAddress: string;
   products: Record<string, boolean>;
   category: string;
-  lead_time_days: number;
   status: string;
 }
 
@@ -61,13 +132,56 @@ function normalizeVendorRecord(data: Partial<VendorRecord>, vendorID: string): V
     vendorID: String(data.vendorID ?? vendorID),
     vendorName: String(data.vendorName ?? ''),
     vendorPhoneNumber: String(data.vendorPhoneNumber ?? ''),
+    vendorAddress: String(data.vendorAddress ?? ''),
     products: normalizeProductsMap(data.products),
     category: String(data.category ?? ''),
-    lead_time_days: Number(data.lead_time_days ?? 0),
     status: String(data.status ?? 'active'),
+    documents: {
+      marketplaceAgreement: normalizeVendorMarketplaceAgreement(data.documents?.marketplaceAgreement),
+    },
     created_at: (data.created_at as Timestamp | null) ?? null,
     updated_at: (data.updated_at as Timestamp | null) ?? null,
   };
+}
+
+function normalizeVendorMarketplaceAgreement(
+  value: Partial<VendorMarketplaceAgreement> | undefined,
+): VendorMarketplaceAgreement | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const confirmations = value.confirmations && typeof value.confirmations === 'object'
+    ? value.confirmations
+    : {};
+
+  return {
+    isCompleted: Boolean(value.isCompleted),
+    executedDay: String(value.executedDay ?? ''),
+    executedMonth: String(value.executedMonth ?? ''),
+    executedYear: String(value.executedYear ?? ''),
+    marketplaceName: String(value.marketplaceName ?? ''),
+    marketplaceRegisteredOffice: String(value.marketplaceRegisteredOffice ?? ''),
+    supplierLegalName: String(value.supplierLegalName ?? ''),
+    supplierBusinessAddress: String(value.supplierBusinessAddress ?? ''),
+    supplierGstNumber: String(value.supplierGstNumber ?? ''),
+    jurisdiction: String(value.jurisdiction ?? ''),
+    confirmations: {
+      documentationTrue: Boolean(confirmations.documentationTrue),
+      allowAuditAndVerification: Boolean(confirmations.allowAuditAndVerification),
+      qualityAndCompliance: Boolean(confirmations.qualityAndCompliance),
+      commercialAndPaymentTerms: Boolean(confirmations.commercialAndPaymentTerms),
+      indemnityAndConfidentiality: Boolean(confirmations.indemnityAndConfidentiality),
+      terminationAndDisputeResolution: Boolean(confirmations.terminationAndDisputeResolution),
+      finalConsent: Boolean(confirmations.finalConsent),
+    },
+    acceptedAt: (value.acceptedAt as Timestamp | null) ?? null,
+    updatedAt: (value.updatedAt as Timestamp | null) ?? null,
+  };
+}
+
+export function hasCompletedMarketplaceAgreement(vendor: VendorDoc | null | undefined): boolean {
+  return Boolean(vendor?.documents?.marketplaceAgreement?.isCompleted);
 }
 
 export function subscribeVendors(
@@ -89,7 +203,7 @@ export function subscribeVendors(
   );
 }
 
-export async function createVendor(input: VendorInput): Promise<void> {
+export async function createVendor(input: VendorInput): Promise<string> {
   const vendorRef = doc(collection(db, VENDORS_COLLECTION));
 
   await setDoc(vendorRef, {
@@ -98,6 +212,8 @@ export async function createVendor(input: VendorInput): Promise<void> {
     created_at: serverTimestamp(),
     updated_at: serverTimestamp(),
   });
+
+  return vendorRef.id;
 }
 
 export async function updateVendor(vendorID: string, input: VendorInput): Promise<void> {
@@ -115,6 +231,35 @@ export async function deleteVendor(vendorID: string): Promise<void> {
 export async function updateVendorStatus(vendorID: string, status: string): Promise<void> {
   await updateDoc(doc(db, VENDORS_COLLECTION, vendorID), {
     status,
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function addProductToVendor(vendorID: string, productID: string): Promise<void> {
+  await updateDoc(doc(db, VENDORS_COLLECTION, vendorID), {
+    [`products.${productID}`]: true,
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function removeProductFromVendor(vendorID: string, productID: string): Promise<void> {
+  await updateDoc(doc(db, VENDORS_COLLECTION, vendorID), {
+    [`products.${productID}`]: deleteField(),
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function saveVendorMarketplaceAgreement(
+  vendorID: string,
+  input: VendorMarketplaceAgreementInput,
+): Promise<void> {
+  await updateDoc(doc(db, VENDORS_COLLECTION, vendorID), {
+    'documents.marketplaceAgreement': {
+      ...input,
+      isCompleted: true,
+      acceptedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
     updated_at: serverTimestamp(),
   });
 }

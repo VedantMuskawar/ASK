@@ -11,7 +11,12 @@ import type { FirebaseError } from "firebase/app";
 
 import { firebaseApp } from "@/lib/firebase";
 
-import { createUserProfile, getUserProfile, getUserProfileByPhone } from "@/lib/firestore-users";
+import {
+  createUserProfile,
+  getUserProfile,
+  getUserProfileByPhone,
+  migrateUserProfileToUidIfNeeded,
+} from "@/lib/firestore-users";
 
 export const firebaseAuth = getAuth(firebaseApp);
 
@@ -144,15 +149,26 @@ export async function signUpUser({
   lastName: string;
   phone: string;
   email: string;
-  role?: "customer" | "admin";
+  role?: "customer" | "admin" | "vendor";
 }) {
   await createUserProfile({ uid, firstName, lastName, phone, email, role });
 }
 
 // Check if user exists in USERS collection and is active
-export async function canUserLogin(uid: string): Promise<boolean> {
-  const user = await getUserProfile(uid);
-  return !!user && user.isActive;
+export async function canUserLogin(uid: string, phone?: string | null): Promise<boolean> {
+  await migrateUserProfileToUidIfNeeded({ uid, phone });
+
+  const userByUid = await getUserProfile(uid);
+  if (userByUid) {
+    return !!userByUid.isActive;
+  }
+
+  if (!phone) {
+    return false;
+  }
+
+  const userByPhone = await getUserProfileByPhone(phone);
+  return !!userByPhone && userByPhone.isActive;
 }
 
 export async function hasUserProfile(uid: string): Promise<boolean> {
@@ -192,7 +208,7 @@ export async function getUserFirstName(uid: string, phone?: string | null): Prom
 export async function getUserRole(
   uid: string,
   phone?: string | null,
-): Promise<"customer" | "admin" | null> {
+): Promise<"customer" | "admin" | "vendor" | null> {
   try {
     const userByUid = await getUserProfile(uid);
     if (userByUid?.role) {

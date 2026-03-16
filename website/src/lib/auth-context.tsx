@@ -13,7 +13,10 @@ const STORAGE_KEY = 'askbuildease_auth_user';
 
 interface AuthContextValue {
   user: string | null;
+  phoneNumber: string | null;
   isAdmin: boolean;
+  isVendor: boolean;
+  isAuthReady: boolean;
   updateUser: (name: string | null) => void;
   signOut: () => Promise<void>;
 }
@@ -24,7 +27,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Keep the initial render deterministic between server and client.
   // We restore cached user info only after mount to avoid hydration mismatch.
   const [user, setUserState] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isVendor, setIsVendor] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const updateUser = useCallback((name: string | null) => {
     setUserState(name);
@@ -43,21 +49,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onFirebaseAuthStateChanged((firebaseUser) => {
       if (!firebaseUser) {
         updateUser(null);
+        setPhoneNumber(null);
         setIsAdmin(false);
+        setIsVendor(false);
+        setIsAuthReady(true);
         return;
       }
+
+      setPhoneNumber(firebaseUser.phoneNumber ?? null);
 
       void Promise.all([
         getUserFirstName(firebaseUser.uid, firebaseUser.phoneNumber),
         getUserRole(firebaseUser.uid, firebaseUser.phoneNumber),
       ])
         .then(([firstName, role]) => {
+          const normalizedRole = String(role ?? '').toLowerCase();
           updateUser(firstName ?? firebaseUser.phoneNumber ?? null);
-          setIsAdmin(role === 'admin');
+          setIsAdmin(normalizedRole === 'admin');
+          setIsVendor(normalizedRole === 'vendor' || normalizedRole === 'vendors');
+          setIsAuthReady(true);
         })
         .catch(() => {
           updateUser(firebaseUser.phoneNumber ?? null);
           setIsAdmin(false);
+          setIsVendor(false);
+          setIsAuthReady(true);
         });
     });
 
@@ -67,11 +83,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await firebaseSignOut();
     updateUser(null);
+    setPhoneNumber(null);
     setIsAdmin(false);
+    setIsVendor(false);
+    setIsAuthReady(true);
   }, [updateUser]);
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, updateUser, signOut }}>
+    <AuthContext.Provider value={{ user, phoneNumber, isAdmin, isVendor, isAuthReady, updateUser, signOut }}>
       {children}
     </AuthContext.Provider>
   );

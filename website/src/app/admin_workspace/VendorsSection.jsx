@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { subscribeProducts } from '@/lib/firestore-products';
+import { upsertVendorUserProfile } from '@/lib/firestore-users';
 import {
   createVendor,
   deleteVendor,
@@ -21,8 +22,6 @@ const CATEGORY_OPTIONS = [
 const SORT_OPTIONS = [
   'name-asc',
   'name-desc',
-  'lead-asc',
-  'lead-desc',
   'status-asc',
   'status-desc',
 ];
@@ -32,9 +31,9 @@ const STATUS_OPTIONS = ['active', 'inactive', 'on-hold'];
 const EMPTY_FORM = {
   vendorName: '',
   vendorPhoneNumber: '',
+  vendorAddress: '',
   products: {},
   category: CATEGORY_OPTIONS[0],
-  lead_time_days: '',
   status: STATUS_OPTIONS[0],
 };
 
@@ -90,6 +89,7 @@ export default function VendorsSection() {
       return (
         vendor.vendorName.toLowerCase().includes(normalizedSearch) ||
         vendor.vendorPhoneNumber.toLowerCase().includes(normalizedSearch) ||
+        (vendor.vendorAddress ?? '').toLowerCase().includes(normalizedSearch) ||
         vendor.category.toLowerCase().includes(normalizedSearch) ||
         vendor.status.toLowerCase().includes(normalizedSearch)
       );
@@ -98,8 +98,6 @@ export default function VendorsSection() {
     return [...searched].sort((a, b) => {
       if (sortBy === 'name-asc') return a.vendorName.localeCompare(b.vendorName);
       if (sortBy === 'name-desc') return b.vendorName.localeCompare(a.vendorName);
-      if (sortBy === 'lead-asc') return a.lead_time_days - b.lead_time_days;
-      if (sortBy === 'lead-desc') return b.lead_time_days - a.lead_time_days;
       if (sortBy === 'status-asc') return a.status.localeCompare(b.status);
       if (sortBy === 'status-desc') return b.status.localeCompare(a.status);
       return 0;
@@ -126,9 +124,9 @@ export default function VendorsSection() {
     setForm({
       vendorName: vendor.vendorName,
       vendorPhoneNumber: vendor.vendorPhoneNumber,
+      vendorAddress: vendor.vendorAddress ?? '',
       products: vendor.products ?? {},
       category: vendor.category,
-      lead_time_days: String(vendor.lead_time_days),
       status: vendor.status,
     });
     setShowForm(true);
@@ -170,15 +168,10 @@ export default function VendorsSection() {
 
     const trimmedVendorName = form.vendorName.trim();
     const normalizedPhone = normalizePhone(form.vendorPhoneNumber);
-    const parsedLeadTime = Number(form.lead_time_days);
+    const trimmedVendorAddress = form.vendorAddress.trim();
 
-    if (!trimmedVendorName || normalizedPhone.length < 7) {
-      setActionError('Vendor name and valid phone number are required.');
-      return;
-    }
-
-    if (!Number.isInteger(parsedLeadTime) || parsedLeadTime < 0) {
-      setActionError('Lead time must be a non-negative whole number.');
+    if (!trimmedVendorName || normalizedPhone.length < 7 || !trimmedVendorAddress) {
+      setActionError('Vendor name, valid phone number, and address are required.');
       return;
     }
 
@@ -189,16 +182,21 @@ export default function VendorsSection() {
       const payload = {
         vendorName: trimmedVendorName,
         vendorPhoneNumber: normalizedPhone,
+        vendorAddress: trimmedVendorAddress,
         products: form.products,
         category: form.category,
-        lead_time_days: parsedLeadTime,
         status: form.status,
       };
 
       if (editingVendorId) {
         await updateVendor(editingVendorId, payload);
       } else {
-        await createVendor(payload);
+        const vendorID = await createVendor(payload);
+        await upsertVendorUserProfile({
+          vendorID,
+          vendorName: trimmedVendorName,
+          vendorPhoneNumber: normalizedPhone,
+        });
       }
 
       resetForm();
@@ -229,10 +227,8 @@ export default function VendorsSection() {
           >
             <option value={SORT_OPTIONS[0]}>Sort: Name (A-Z)</option>
             <option value={SORT_OPTIONS[1]}>Sort: Name (Z-A)</option>
-            <option value={SORT_OPTIONS[2]}>Sort: Lead Time (Low-High)</option>
-            <option value={SORT_OPTIONS[3]}>Sort: Lead Time (High-Low)</option>
-            <option value={SORT_OPTIONS[4]}>Sort: Status (A-Z)</option>
-            <option value={SORT_OPTIONS[5]}>Sort: Status (Z-A)</option>
+            <option value={SORT_OPTIONS[2]}>Sort: Status (A-Z)</option>
+            <option value={SORT_OPTIONS[3]}>Sort: Status (Z-A)</option>
           </select>
           <button
             type="button"
@@ -252,9 +248,9 @@ export default function VendorsSection() {
               <tr className="border-b border-(--border) text-(--soft-text)">
                 <th className="px-2 py-2 font-medium">Vendor Name</th>
                 <th className="px-2 py-2 font-medium">Vendor Phone Number</th>
+                <th className="px-2 py-2 font-medium">Vendor Address</th>
                 <th className="px-2 py-2 font-medium">Products</th>
                 <th className="px-2 py-2 font-medium">Category</th>
-                <th className="px-2 py-2 font-medium">Lead Time (Days)</th>
                 <th className="px-2 py-2 font-medium">Status</th>
                 <th className="px-2 py-2 font-medium">Edit</th>
                 <th className="px-2 py-2 font-medium">Delete</th>
@@ -271,11 +267,11 @@ export default function VendorsSection() {
                   <tr key={vendor.vendorID} className="border-b border-(--border) last:border-0">
                     <td className="px-2 py-3">{vendor.vendorName}</td>
                     <td className="px-2 py-3">{vendor.vendorPhoneNumber}</td>
+                    <td className="px-2 py-3">{vendor.vendorAddress || <span className="text-(--muted)">—</span>}</td>
                     <td className="px-2 py-3">
                       {mappedProductNames || <span className="text-(--muted)">No products</span>}
                     </td>
                     <td className="px-2 py-3">{vendor.category}</td>
-                    <td className="px-2 py-3">{vendor.lead_time_days}</td>
                     <td className="px-2 py-3">
                       <button
                         type="button"
@@ -353,6 +349,13 @@ export default function VendorsSection() {
                   className="rounded-xl border border-(--border) bg-white px-3 py-2 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   required
                 />
+                <input
+                  value={form.vendorAddress}
+                  onChange={(event) => setForm((prev) => ({ ...prev, vendorAddress: event.target.value }))}
+                  placeholder="Vendor address"
+                  className="rounded-xl border border-(--border) bg-white px-3 py-2 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  required
+                />
                 <select
                   value={form.category}
                   onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
@@ -362,16 +365,6 @@ export default function VendorsSection() {
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={form.lead_time_days}
-                  onChange={(event) => setForm((prev) => ({ ...prev, lead_time_days: event.target.value }))}
-                  placeholder="Lead time (days)"
-                  className="rounded-xl border border-(--border) bg-white px-3 py-2 text-sm text-foreground outline-none transition focus:border-(--accent)"
-                  required
-                />
                 <select
                   value={form.status}
                   onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
