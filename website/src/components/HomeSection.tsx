@@ -1,13 +1,15 @@
 'use client';
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import EstimatorEngine from './EstimatorEngine';
 import { ArrowDownWideNarrow, Check, Minus, Plus, Search, ShoppingCart, SlidersHorizontal } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 
 import { subscribeProducts, type ProductDoc } from '@/lib/firestore-products';
 import { subscribeVendors, type VendorDoc } from '@/lib/firestore-vendors';
-import Cart from '@/components/cart';
+
+const EstimatorEngine = dynamic(() => import('./EstimatorEngine'));
+const Cart = dynamic(() => import('@/components/cart'));
 
 const CATEGORY_OPTIONS = [
   'All Categories',
@@ -26,6 +28,25 @@ const SORT_OPTIONS = [
 const PRODUCTS_PER_BATCH = 12;
 
 export default function HomeSection() {
+  const parsePositiveMap = (value: string | null): Record<string, number> => {
+    if (!value) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(value) as Record<string, number>;
+      return Object.entries(parsed).reduce<Record<string, number>>((acc, [key, itemValue]) => {
+        const next = Number(itemValue);
+        if (key && Number.isFinite(next) && next > 0) {
+          acc[key] = Math.floor(next);
+        }
+        return acc;
+      }, {});
+    } catch {
+      return {};
+    }
+  };
+
   const prefersReducedMotion = useReducedMotion();
   const [searchValue, setSearchValue] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(CATEGORY_OPTIONS[0]);
@@ -33,14 +54,28 @@ export default function HomeSection() {
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [vendors, setVendors] = useState<VendorDoc[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
-  const [quantityByProduct, setQuantityByProduct] = useState<Record<string, number>>({});
-  const [cartByProduct, setCartByProduct] = useState<Record<string, number>>({});
+  const [quantityByProduct, setQuantityByProduct] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    return parsePositiveMap(window.localStorage.getItem('quantity-by-product'));
+  });
+  const [cartByProduct, setCartByProduct] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    return parsePositiveMap(window.localStorage.getItem('cart-by-product'));
+  });
   const [imageIndexByProduct, setImageIndexByProduct] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [recentlyAddedProductID, setRecentlyAddedProductID] = useState<string | null>(null);
   const [visibleProductCount, setVisibleProductCount] = useState(PRODUCTS_PER_BATCH);
 
   const [estimatorProductSelection, setEstimatorProductSelection] = useState('');
+  const [justChangedQuantityProductID, setJustChangedQuantityProductID] = useState<string | null>(null);
+  const [filterKey, setFilterKey] = useState(0);
 
   // Memoize vendorById before any effect uses it
   const vendorById = useMemo(() => {
@@ -49,43 +84,6 @@ export default function HomeSection() {
       return acc;
     }, {});
   }, [vendors]);
-
-  useEffect(() => {
-    const savedCart = window.localStorage.getItem('cart-by-product');
-    const savedQuantities = window.localStorage.getItem('quantity-by-product');
-
-    if (savedCart) {
-      try {
-        const parsed = JSON.parse(savedCart) as Record<string, number>;
-        const normalized = Object.entries(parsed).reduce<Record<string, number>>((acc, [key, value]) => {
-          const next = Number(value);
-          if (key && Number.isFinite(next) && next > 0) {
-            acc[key] = Math.floor(next);
-          }
-          return acc;
-        }, {});
-        setCartByProduct(normalized);
-      } catch {
-        // Ignore corrupted local storage entries.
-      }
-    }
-
-    if (savedQuantities) {
-      try {
-        const parsed = JSON.parse(savedQuantities) as Record<string, number>;
-        const normalized = Object.entries(parsed).reduce<Record<string, number>>((acc, [key, value]) => {
-          const next = Number(value);
-          if (key && Number.isFinite(next) && next > 0) {
-            acc[key] = Math.floor(next);
-          }
-          return acc;
-        }, {});
-        setQuantityByProduct(normalized);
-      } catch {
-        // Ignore corrupted local storage entries.
-      }
-    }
-  }, []);
 
   useEffect(() => {
     window.localStorage.setItem('cart-by-product', JSON.stringify(cartByProduct));
@@ -100,6 +98,10 @@ export default function HomeSection() {
       (nextProducts) => {
         setProducts(nextProducts);
         setIsLoadingProducts(false);
+      },
+      {
+        onlyActive: true,
+        onlyApproved: true,
       },
       () => {
         setIsLoadingProducts(false);
@@ -201,11 +203,19 @@ export default function HomeSection() {
   const estimatorSelectedProduct = estimatorSelectedOption?.product ?? null;
 
   useEffect(() => {
-    setVisibleProductCount(PRODUCTS_PER_BATCH);
-  }, [searchValue, selectedCategory, selectedSort]);
+    if (!justChangedQuantityProductID) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setJustChangedQuantityProductID(null);
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [justChangedQuantityProductID]);
 
   const totalCartItems = useMemo(() => {
-    return Object.values(cartByProduct).reduce((sum, count) => sum + count, 0);
+    return Object.keys(cartByProduct).length;
   }, [cartByProduct]);
 
   useEffect(() => {
@@ -265,21 +275,6 @@ export default function HomeSection() {
   }, [cartItems]);
 
   useEffect(() => {
-    setImageIndexByProduct((prev) => {
-      const nextIndexes: Record<string, number> = {};
-
-      visibleProducts.forEach((product) => {
-        const imageCount = Array.isArray(product.images) ? product.images.length : 0;
-        if (imageCount > 0) {
-          nextIndexes[product.productID] = (prev[product.productID] ?? 0) % imageCount;
-        }
-      });
-
-      return nextIndexes;
-    });
-  }, [visibleProducts]);
-
-  useEffect(() => {
     if (prefersReducedMotion) return;
 
     const hasMultiImageProducts = visibleProducts.some(
@@ -317,6 +312,7 @@ export default function HomeSection() {
       ...prev,
       [productID]: clamped,
     }));
+    setJustChangedQuantityProductID(productID);
   };
 
   const handleAddToCart = (productID: string) => {
@@ -340,8 +336,9 @@ export default function HomeSection() {
     setCartByProduct((prev) => {
       const current = prev[productID] ?? 0;
       if (current <= 1) {
-        const { [productID]: _, ...rest } = prev;
-        return rest;
+        const next = { ...prev };
+        delete next[productID];
+        return next;
       }
 
       return {
@@ -360,8 +357,9 @@ export default function HomeSection() {
 
   const handleRemoveCartItem = (productID: string) => {
     setCartByProduct((prev) => {
-      const { [productID]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[productID];
+      return next;
     });
   };
 
@@ -379,35 +377,118 @@ export default function HomeSection() {
 
   return (
     <section id="top" className="section-pad relative overflow-hidden bg-transparent pt-32 sm:pt-40">
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <motion.div
+          className="absolute -inset-[28%] blur-3xl"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 12% 22%, rgba(217,119,6,0.16), transparent 42%), radial-gradient(circle at 84% 28%, rgba(15,118,110,0.14), transparent 44%), radial-gradient(circle at 58% 84%, rgba(194,65,12,0.13), transparent 46%)',
+            backgroundSize: '160% 160%',
+          }}
+          animate={
+            prefersReducedMotion
+              ? { backgroundPosition: '50% 50%', scale: 1 }
+              : {
+                  backgroundPosition: ['0% 0%', '100% 24%', '28% 100%', '0% 0%'],
+                  scale: [1, 1.03, 1.01, 1],
+                }
+          }
+          transition={{ duration: 34, repeat: Infinity, ease: 'easeInOut' }}
+        />
+
+        {[
+          {
+            left: '8%',
+            top: '18%',
+            size: 260,
+            color: 'rgba(245,158,11,0.16)',
+            dx: 34,
+            dy: 22,
+            duration: 22,
+            delay: 0,
+            opacity: 0.2,
+          },
+          {
+            left: '72%',
+            top: '12%',
+            size: 220,
+            color: 'rgba(20,184,166,0.14)',
+            dx: 26,
+            dy: 30,
+            duration: 27,
+            delay: 1.2,
+            opacity: 0.18,
+          },
+          {
+            left: '58%',
+            top: '68%',
+            size: 280,
+            color: 'rgba(234,88,12,0.14)',
+            dx: 30,
+            dy: 20,
+            duration: 30,
+            delay: 0.8,
+            opacity: 0.16,
+          },
+        ].map((orb, index) => (
+          <motion.div
+            key={`ambient-orb-${index}`}
+            className="absolute rounded-full blur-3xl"
+            style={{
+              left: orb.left,
+              top: orb.top,
+              width: orb.size,
+              height: orb.size,
+              background: orb.color,
+            }}
+            animate={
+              prefersReducedMotion
+                ? { x: 0, y: 0, scale: 1, opacity: orb.opacity }
+                : {
+                    x: [0, orb.dx, -orb.dx * 0.45, 0],
+                    y: [0, -orb.dy, orb.dy * 0.6, 0],
+                    scale: [1, 1.07, 0.98, 1],
+                    opacity: [orb.opacity * 0.9, orb.opacity, orb.opacity * 0.82, orb.opacity * 0.9],
+                  }
+            }
+            transition={{
+              duration: orb.duration,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              delay: orb.delay,
+            }}
+          />
+        ))}
+      </div>
+
       <motion.div
         initial={prefersReducedMotion ? undefined : { opacity: 0, y: 24 }}
         animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
         transition={prefersReducedMotion ? undefined : { duration: 0.65, ease: 'easeOut' }}
-        className="relative left-1/2 w-[90%] max-w-none -translate-x-1/2 rounded-4xl bg-transparent px-5 py-6 sm:px-8 sm:py-8 lg:px-10"
+        className="relative z-10 left-1/2 w-[90%] max-w-none -translate-x-1/2 rounded-4xl bg-transparent px-5 py-6 sm:px-8 sm:py-8 lg:px-10"
       >
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
               <h1 className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-(--foreground-strong) sm:text-3xl lg:text-4xl">
-                Search materials,
-                <br />
-                narrow by category,
-                <br />
-                and sort supply options in one pass.
+                Digitizing the Construction Material Supply Chain
               </h1>
               <p className="text-sm leading-relaxed text-(--muted) sm:text-base">
-                Built for fast procurement workflows with a single control row that keeps search, filtering,
-                and ranking immediately accessible.
+                Connecting contractors and builders with verified suppliers for real-time pricing, seamless logistics, and secure transactions—all in one ecosystem.
               </p>
             </div>
 
             <div className="p-3 sm:p-4">
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(13rem,0.7fr)_minmax(13rem,0.7fr)]">
-                <label className="group flex items-center gap-3 rounded-[1.35rem] border border-(--border) bg-white/70 px-4 py-3 transition focus-within:border-(--accent) focus-within:bg-white">
+                <label className="group flex items-center gap-3 rounded-[1.35rem] border border-(--border) bg-white/70 px-4 py-3 transition focus-within:border-(--accent) focus-within:bg-white focus-within:shadow-[0_0_20px_rgba(217,119,6,0.15)]">
                   <Search size={18} className="text-(--soft-text) transition group-focus-within:text-(--accent)" />
                   <input
                     type="search"
                     value={searchValue}
-                    onChange={(event) => setSearchValue(event.target.value)}
+                    onChange={(event) => {
+                      setSearchValue(event.target.value);
+                      setVisibleProductCount(PRODUCTS_PER_BATCH);
+                      setFilterKey((prev) => prev + 1);
+                    }}
                     placeholder="Search cement, tiles, sanitaryware..."
                     className="w-full bg-transparent text-sm text-foreground placeholder:text-(--soft-text) outline-none"
                   />
@@ -417,7 +498,11 @@ export default function HomeSection() {
                   <SlidersHorizontal size={18} className="text-(--soft-text)" />
                   <select
                     value={selectedCategory}
-                    onChange={(event) => setSelectedCategory(event.target.value)}
+                    onChange={(event) => {
+                      setSelectedCategory(event.target.value);
+                      setVisibleProductCount(PRODUCTS_PER_BATCH);
+                      setFilterKey((prev) => prev + 1);
+                    }}
                     className="w-full bg-transparent text-sm text-foreground outline-none"
                     aria-label="Filter by category"
                   >
@@ -433,7 +518,11 @@ export default function HomeSection() {
                   <ArrowDownWideNarrow size={18} className="text-(--soft-text)" />
                   <select
                     value={selectedSort}
-                    onChange={(event) => setSelectedSort(event.target.value)}
+                    onChange={(event) => {
+                      setSelectedSort(event.target.value);
+                      setVisibleProductCount(PRODUCTS_PER_BATCH);
+                      setFilterKey((prev) => prev + 1);
+                    }}
                     className="w-full bg-transparent text-sm text-foreground outline-none"
                     aria-label="Sort products"
                   >
@@ -449,15 +538,17 @@ export default function HomeSection() {
               <div className="mt-6 bg-transparent p-4 sm:p-5">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-(--foreground-strong)">Products</p>
-                  <button
+                  <motion.button
                     type="button"
                     onClick={() => setIsCartOpen(true)}
                     className="inline-flex items-center gap-2 rounded-full border border-(--border) bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-(--accent)"
-                    aria-label={`Open cart with ${totalCartItems} item${totalCartItems === 1 ? '' : 's'}`}
+                    aria-label={`Open cart with ${totalCartItems} product${totalCartItems === 1 ? '' : 's'}`}
+                    animate={totalCartItems > 0 && !prefersReducedMotion ? { scale: [1, 1.08, 1] } : undefined}
+                    transition={{ duration: 0.4, ease: 'easeOut', repeat: Infinity, repeatDelay: 3 }}
                   >
                     <ShoppingCart size={14} />
                     <span>Cart: {totalCartItems}</span>
-                  </button>
+                  </motion.button>
                 </div>
 
                 {isLoadingProducts && <p className="text-sm text-(--muted)">Loading products...</p>}
@@ -467,7 +558,14 @@ export default function HomeSection() {
                 )}
 
                 {visibleProducts.length > 0 && (
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <motion.div
+                    key={filterKey}
+                    className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+                    initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
+                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1 }}
+                    exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
                     {displayedProducts.map((product) => {
                       const productVendor = vendorById[product.vendorID];
                       const leadTimeDays = Number(product.lead_time_days ?? 0);
@@ -485,15 +583,16 @@ export default function HomeSection() {
                       const activeImageUrl = productImages[activeImageIndex];
                       const rawSelectedQuantity = quantityByProduct[product.productID] ?? minQty;
                       const selectedQuantity = Math.min(maxQty, Math.max(minQty, rawSelectedQuantity));
-                      const deliveryCostByQty = selectedQuantity * perKmPerUnit;
                       const isRecentlyAdded = recentlyAddedProductID === product.productID;
 
                       return (
                         <motion.article
                           key={product.productID}
                           className="glass-card-soft flex h-full flex-col rounded-2xl p-3"
+                          initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+                          animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                          transition={{ duration: 0.4, ease: 'easeOut' }}
                           whileHover={prefersReducedMotion ? undefined : { y: -4, scale: 1.02, boxShadow: '0 12px 32px rgba(0,0,0,0.12)' }}
-                          transition={{ duration: 0.2, ease: 'easeOut' }}
                         >
                           <div className="relative aspect-16/10 overflow-hidden rounded-xl bg-(--surface-soft)">
                             {activeImageUrl ? (
@@ -561,7 +660,11 @@ export default function HomeSection() {
                           </div>
 
                           <div className="mt-3 flex items-center gap-2">
-                            <div className="inline-flex flex-1 items-center rounded-xl border border-(--border) bg-white/70">
+                            <motion.div
+                              className="inline-flex flex-1 items-center rounded-xl border border-(--border) bg-white/70"
+                              animate={justChangedQuantityProductID === product.productID && !prefersReducedMotion ? { scale: [1, 1.06, 1] } : undefined}
+                              transition={{ duration: 0.3, ease: 'easeOut' }}
+                            >
                               <button
                                 type="button"
                                 aria-label={`Decrease quantity for ${product.name}`}
@@ -590,7 +693,7 @@ export default function HomeSection() {
                               >
                                 <Plus size={14} />
                               </button>
-                            </div>
+                            </motion.div>
 
                             <motion.button
                               type="button"
@@ -644,29 +747,32 @@ export default function HomeSection() {
                         </motion.article>
                       );
                     })}
-                  </div>
+                  </motion.div>
                 )}
 
                 {visibleProducts.length > displayedProducts.length && (
-                  <div className="mt-4 flex justify-center">
-                    <button
+                  <motion.div
+                    className="mt-4 flex justify-center"
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
+                  >
+                    <motion.button
                       type="button"
                       onClick={() => setVisibleProductCount((prev) => prev + PRODUCTS_PER_BATCH)}
                       className="rounded-full border border-(--border) bg-(--surface) px-4 py-2 text-xs font-semibold text-foreground transition hover:border-(--accent) hover:bg-(--surface-soft)"
+                      whileHover={prefersReducedMotion ? undefined : { scale: 1.02 }}
+                      whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                     >
                       Load More
-                    </button>
-                  </div>
+                    </motion.button>
+                  </motion.div>
                 )}
 
                 <section className="mt-8 rounded-3xl border border-(--border) bg-linear-to-br from-white/85 via-white/70 to-[rgb(241,235,229,0.65)] p-5 shadow-[0_18px_54px_rgba(68,39,34,0.12)] sm:p-6">
                   <div className="flex flex-wrap items-end justify-between gap-4">
                     <div>
                       <p className="text-xs font-semibold tracking-[0.16em] text-(--soft-text)">ESTIMATOR ENGINE</p>
-                      <h2 className="mt-2 text-xl font-semibold tracking-tight text-(--foreground-strong)">Wall Quantity Estimator</h2>
-                      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-(--muted)">
-                        Pick a brick or block product, enter wall dimensions in meters, and get a fast unit estimate with wastage included.
-                      </p>
                     </div>
 
                     {estimatorSelectedOption && (
@@ -693,19 +799,19 @@ export default function HomeSection() {
                         <p className="mt-2 text-sm leading-relaxed text-(--muted)">
                           Search by product name and vendor. Select an approved brick or block item to unlock the estimator.
                         </p>
-                        <input
-                          type="text"
-                          list="estimator-product-options"
+                        <select
                           value={estimatorProductSelection}
                           onChange={(event) => setEstimatorProductSelection(event.target.value)}
                           className="mt-4 w-full rounded-2xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                           aria-label="Estimator product selector"
-                        />
-                        <datalist id="estimator-product-options">
+                        >
+                          <option value="">Select a product...</option>
                           {estimatorProductOptions.map((option) => (
-                            <option key={option.label} value={option.label} />
+                            <option key={option.label} value={option.label}>
+                              {option.label}
+                            </option>
                           ))}
-                        </datalist>
+                        </select>
                       </label>
                     </motion.div>
 
@@ -724,7 +830,7 @@ export default function HomeSection() {
                           </div>
                           <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
                             <p className="text-[11px] uppercase tracking-[0.14em] text-(--soft-text)">Type</p>
-                            <p className="mt-2 text-sm font-semibold text-(--foreground-strong)">{estimatorSelectedProduct.productType.replaceAll('_', ' ')}</p>
+                            <p className="mt-2 text-sm font-semibold text-(--foreground-strong)">{(estimatorSelectedProduct.productType ?? '').replaceAll('_', ' ')}</p>
                           </div>
                           <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
                             <p className="text-[11px] uppercase tracking-[0.14em] text-(--soft-text)">Unit</p>

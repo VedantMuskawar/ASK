@@ -209,7 +209,7 @@ export default function VendorsSection() {
   };
 
   return (
-    <section id="vendors" className="relative left-1/2 w-[150%] -translate-x-1/2 space-y-6">
+    <section id="vendors" className="relative left-1/2 w-[120%] -translate-x-1/2 space-y-6">
       <div className="glass-card-strong rounded-3xl p-6 sm:p-8">
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="mr-auto text-lg font-semibold tracking-tight text-(--foreground-strong)">Vendors</h3>

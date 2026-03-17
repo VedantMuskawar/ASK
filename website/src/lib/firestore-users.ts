@@ -185,9 +185,10 @@ function normalizeCustomerPlatformAgreement(
     return null;
   }
 
-  const confirmations = value.confirmations && typeof value.confirmations === 'object'
-    ? value.confirmations
-    : {};
+  const confirmations: Partial<CustomerPlatformAgreement['confirmations']> =
+    value.confirmations && typeof value.confirmations === 'object'
+      ? (value.confirmations as Partial<CustomerPlatformAgreement['confirmations']>)
+      : {};
 
   return {
     isCompleted: Boolean(value.isCompleted),

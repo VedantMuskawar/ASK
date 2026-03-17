@@ -3,12 +3,12 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { ConfirmationResult } from 'firebase/auth';
 import { ChevronLeft, FileText, Home, LogOut, MapPin, Navigation, Package, ShoppingCart, User, X } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
 import {
   firebaseAuth,
-  canUserLoginByPhone,
   getFirebaseAuthErrorMessage,
   firebaseSignOut,
   requestPhoneOtp,
@@ -25,8 +25,9 @@ import {
   saveVendorMarketplaceAgreement,
   type VendorMarketplaceAgreement,
 } from '@/lib/firestore-vendors';
-import OrdersSection from '@/components/OrdersSection';
-import SignUpForm from './SignUpForm';
+
+const OrdersSection = dynamic(() => import('@/components/OrdersSection'));
+const SignUpForm = dynamic(() => import('./SignUpForm'));
 
 const COUNTRY_CODES = [
   { dialCode: '+91', minLength: 10, maxLength: 10, example: '9876543210' },
@@ -226,12 +227,6 @@ function AccountModal({
 
     try {
       const e164PhoneNumber = `${selectedCountry.dialCode}${phoneDigits}`;
-      const allowed = await canUserLoginByPhone(e164PhoneNumber);
-      if (!allowed) {
-        setStatus('Sign Up Before Login');
-        return;
-      }
-
       const result = await requestPhoneOtp(e164PhoneNumber, 'phone-auth-recaptcha');
       setConfirmationResult(result);
       setStatus('OTP sent. Enter the 6-digit code.');
@@ -1267,7 +1262,15 @@ export default function Header({
   const prefersReducedMotion = useReducedMotion();
   const [modal, setModal] = useState<ActiveModal>(null);
   const [location, setLocation] = useState<string | null>(null);
-  const [cartCount, setCartCount] = useState(0);
+  const [cartCount, setCartCount] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 0;
+    }
+
+    const savedCount = window.localStorage.getItem('cart-count');
+    const parsed = Number(savedCount ?? 0);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  });
   const [cartPulseKey, setCartPulseKey] = useState(0);
   const [activeAdminSection, setActiveAdminSection] = useState('');
   const [activeVendorSection, setActiveVendorSection] = useState('');
@@ -1279,7 +1282,7 @@ export default function Header({
   const showAdminWorkspace = isAdmin;
   const showVendorWorkspace = !isAdmin && isVendor;
   const isCustomerUser = Boolean(user) && !isAdmin && !isVendor;
-  const customerUid = firebaseAuth.currentUser?.uid ?? null;
+  const customerUid = firebaseAuth.currentUser?.uid ?? '';
   const hasCustomerAgreement = Boolean(customerAgreement?.isCompleted);
   const onAdminSectionChangeRef = useRef(onAdminSectionChange);
   const onVendorSectionChangeRef = useRef(onVendorSectionChange);
@@ -1293,14 +1296,6 @@ export default function Header({
   }, [onVendorSectionChange]);
 
   useEffect(() => {
-    const savedCount = window.localStorage.getItem('cart-count');
-    if (savedCount !== null) {
-      const parsed = Number(savedCount);
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        setCartCount(parsed);
-      }
-    }
-
     const handleCartCountUpdated = (event: Event) => {
       const customEvent = event as CustomEvent<{ count?: number }>;
       const nextCount = Number(customEvent.detail?.count ?? 0);
@@ -1372,16 +1367,12 @@ export default function Header({
 
   useEffect(() => {
     if (variant !== 'default' || !isCustomerUser) {
-      setCustomerAgreement(null);
-      customerAgreementPromptedForUidRef.current = null;
       return;
     }
 
     const uid = firebaseAuth.currentUser?.uid;
 
     if (!uid) {
-      setCustomerAgreement(null);
-      customerAgreementPromptedForUidRef.current = null;
       return;
     }
 

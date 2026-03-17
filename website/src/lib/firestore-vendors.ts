@@ -24,29 +24,7 @@ export interface VendorRecord {
   category: string;
   status: string;
   documents?: {
-    marketplaceAgreement?: {
-      isCompleted?: boolean;
-      executedDay?: string;
-      executedMonth?: string;
-      executedYear?: string;
-      marketplaceName?: string;
-      marketplaceRegisteredOffice?: string;
-      supplierLegalName?: string;
-      supplierBusinessAddress?: string;
-      supplierGstNumber?: string;
-      jurisdiction?: string;
-      confirmations?: {
-        documentationTrue?: boolean;
-        allowAuditAndVerification?: boolean;
-        qualityAndCompliance?: boolean;
-        commercialAndPaymentTerms?: boolean;
-        indemnityAndConfidentiality?: boolean;
-        terminationAndDisputeResolution?: boolean;
-        finalConsent?: boolean;
-      };
-      acceptedAt?: Timestamp | FieldValue;
-      updatedAt?: Timestamp | FieldValue;
-    };
+    marketplaceAgreement?: VendorMarketplaceAgreementRecord | null;
   };
   created_at: Timestamp | FieldValue;
   updated_at: Timestamp | FieldValue;
@@ -97,6 +75,22 @@ export interface VendorMarketplaceAgreementInput {
   };
 }
 
+type VendorMarketplaceAgreementRecord = {
+  isCompleted?: boolean;
+  executedDay?: string;
+  executedMonth?: string;
+  executedYear?: string;
+  marketplaceName?: string;
+  marketplaceRegisteredOffice?: string;
+  supplierLegalName?: string;
+  supplierBusinessAddress?: string;
+  supplierGstNumber?: string;
+  jurisdiction?: string;
+  confirmations?: Partial<VendorMarketplaceAgreement['confirmations']>;
+  acceptedAt?: Timestamp | FieldValue | null;
+  updatedAt?: Timestamp | FieldValue | null;
+};
+
 export interface VendorDoc extends Omit<VendorRecord, 'created_at' | 'updated_at'> {
   created_at: Timestamp | null;
   updated_at: Timestamp | null;
@@ -145,15 +139,16 @@ function normalizeVendorRecord(data: Partial<VendorRecord>, vendorID: string): V
 }
 
 function normalizeVendorMarketplaceAgreement(
-  value: Partial<VendorMarketplaceAgreement> | undefined,
+  value: VendorMarketplaceAgreementRecord | null | undefined,
 ): VendorMarketplaceAgreement | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
 
-  const confirmations = value.confirmations && typeof value.confirmations === 'object'
-    ? value.confirmations
-    : {};
+  const confirmations: Partial<VendorMarketplaceAgreement['confirmations']> =
+    value.confirmations && typeof value.confirmations === 'object'
+      ? (value.confirmations as Partial<VendorMarketplaceAgreement['confirmations']>)
+      : {};
 
   return {
     isCompleted: Boolean(value.isCompleted),

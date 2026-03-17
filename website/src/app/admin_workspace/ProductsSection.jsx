@@ -539,7 +539,7 @@ export default function ProductsSection({
   };
 
   return (
-    <section id="products" className="relative left-1/2 w-[150%] -translate-x-1/2 space-y-6">
+    <section id="products" className="relative left-1/2 w-[120%] -translate-x-1/2 space-y-6">
 
       <div className="glass-card-strong rounded-3xl p-6 sm:p-8">
         <div className="flex flex-wrap items-center gap-3">

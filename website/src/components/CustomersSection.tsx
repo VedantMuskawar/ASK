@@ -57,7 +57,7 @@ function phonesMatch(left: string, right: string): boolean {
 
 function toDate(order: OrderDoc): Date | null {
   const millis = order.created_at?.toMillis?.();
-  return Number.isFinite(millis) ? new Date(millis) : null;
+  return typeof millis === 'number' && Number.isFinite(millis) ? new Date(millis) : null;
 }
 
 function formatCurrency(value: number): string {
@@ -262,7 +262,8 @@ export default function CustomersSection({
   const resolvedTitle = title ?? (viewer === 'admin' ? 'Customer Section' : 'Vendor Customers');
 
   return (
-    <section className="glass-card-strong rounded-3xl p-6 sm:p-8">
+    <section className="relative left-1/2 w-[120%] -translate-x-1/2">
+      <div className="glass-card-strong rounded-3xl p-6 sm:p-8">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="mr-auto text-xl font-semibold tracking-tight text-(--foreground-strong)">{resolvedTitle}</h2>
         <input
@@ -370,6 +371,7 @@ export default function CustomersSection({
         </div>,
         document.body,
       )}
+      </div>
     </section>
   );
 }

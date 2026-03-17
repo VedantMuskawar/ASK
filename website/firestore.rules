@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/USERS/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/USERS/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return hasUserDoc()
+        ? userDoc().data.role
+        : null;
+    }
+
+    function isAdmin() {
+      return userRole() == 'admin';
+    }
+
+    function isVendor() {
+      return userRole() == 'vendor';
+    }
+
+    function authPhone() {
+      return isSignedIn() && request.auth.token.phone_number != null
+        ? request.auth.token.phone_number
+        : '';
+    }
+
+    function phoneMatches(storedPhone) {
+      return storedPhone is string
+        && storedPhone.size() > 0
+        && authPhone().size() > 0
+        && (
+          authPhone() == storedPhone
+          || authPhone().matches('.*' + storedPhone + '$')
+          || storedPhone.matches('.*' + authPhone() + '$')
+        );
+    }
+
+    function vendorOwnedByCaller(vendorID) {
+      return vendorID is string
+        && vendorID.size() > 0
+        && exists(/databases/$(database)/documents/VENDORS/$(vendorID))
+        && phoneMatches(get(/databases/$(database)/documents/VENDORS/$(vendorID)).data.vendorPhoneNumber);
+    }
+
+    match /USERS/{uid} {
+      // Current app queries USERS by phone from client without query constraints.
+      allow read: if isSignedIn();
+
+      allow create: if isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == 'customer'
+          && request.resource.data.isActive == true
+        );
+
+      allow update: if isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.isActive == resource.data.isActive
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /VENDORS/{vendorID} {
+      // Current app subscribes to entire vendor collection on client.
+      allow read: if isSignedIn();
+
+      allow create, delete: if isAdmin();
+
+      // Admin can fully manage vendor documents.
+      allow update: if isAdmin();
+
+      // Vendors can only save marketplace agreement for their own linked vendor profile.
+      allow update: if isVendor()
+        && phoneMatches(resource.data.vendorPhoneNumber)
+        && request.resource.data.vendorID == resource.data.vendorID
+        && request.resource.data.vendorName == resource.data.vendorName
+        && request.resource.data.vendorPhoneNumber == resource.data.vendorPhoneNumber
+        && request.resource.data.vendorAddress == resource.data.vendorAddress
+        && request.resource.data.products == resource.data.products
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.status == resource.data.status;
+    }
+
+    match /PRODUCTS/{productID} {
+      allow read: if true;
+
+      allow create: if isAdmin()
+        || (
+          isVendor()
+          && vendorOwnedByCaller(request.resource.data.vendorID)
+          && request.resource.data.adminVerificationStatus == 'pending'
+        );
+
+      allow update: if isAdmin()
+        || (
+          isVendor()
+          && request.resource.data.vendorID == resource.data.vendorID
+          && vendorOwnedByCaller(resource.data.vendorID)
+          && request.resource.data.adminVerificationStatus == resource.data.adminVerificationStatus
+        );
+
+      allow delete: if isAdmin()
+        || (isVendor() && vendorOwnedByCaller(resource.data.vendorID));
+    }
+
+    match /ORDERS/{orderID} {
+      // Current app subscribes to entire orders collection on client.
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.customerID == request.auth.uid
+        && request.resource.data.userID == request.auth.uid
+        && request.resource.data.status == 'Placed';
+
+      allow update: if isAdmin()
+        || (
+          isVendor()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updated_at', 'updatedAt'])
+          && (
+            request.resource.data.status == 'Placed'
+            || request.resource.data.status == 'Dispatched'
+            || request.resource.data.status == 'Delivered'
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+  }
+}

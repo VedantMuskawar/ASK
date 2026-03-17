@@ -310,7 +310,7 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="0.01"
                   value={wallLength}
                   onChange={(event) => setWallLength(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   aria-label="Wall length in meters"
                 />
               </label>
@@ -327,7 +327,7 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="0.01"
                   value={wallWidth}
                   onChange={(event) => setWallWidth(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   aria-label="Wall width in meters"
                 />
               </label>
@@ -344,7 +344,7 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="0.01"
                   value={wallHeight}
                   onChange={(event) => setWallHeight(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   aria-label="Wall height in meters"
                 />
               </label>
@@ -365,8 +365,9 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="0.01"
                   value={surfaceArea}
                   onChange={(event) => setSurfaceArea(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-8 text-sm text-foreground outline-none transition focus:border-(--accent) min-h-30"
                   aria-label="Paintable area in square meters"
+                  placeholder="Enter area in sq.m"
                 />
               </label>
 
@@ -382,7 +383,7 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="1"
                   value={coats}
                   onChange={(event) => setCoats(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   aria-label="Number of paint coats"
                 />
               </label>
@@ -403,7 +404,7 @@ export default function EstimatorEngine({ selectedProduct }: EstimatorEngineProp
                   step="0.01"
                   value={tileSurfaceArea}
                   onChange={(event) => setTileSurfaceArea(event.target.value)}
-                  className="rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
+                  className="w-full rounded-xl border border-(--border) bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-(--accent)"
                   aria-label="Tile surface area in square meters"
                 />
               </label>

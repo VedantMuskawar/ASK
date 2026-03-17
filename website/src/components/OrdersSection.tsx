@@ -83,7 +83,7 @@ function statusBadgeClasses(status: OrderStatus): string {
 
 function toDate(order: OrderDoc): Date | null {
   const millis = order.created_at?.toMillis?.();
-  return Number.isFinite(millis) ? new Date(millis) : null;
+  return typeof millis === 'number' && Number.isFinite(millis) ? new Date(millis) : null;
 }
 
 function SummaryCard({ label, value }: { label: string; value: string | number }) {
@@ -292,7 +292,8 @@ export default function OrdersSection({
   };
 
   return (
-    <section className={`glass-card-strong rounded-3xl ${compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8'}`}>
+    <section className="relative left-1/2 w-[120%] -translate-x-1/2">
+      <div className={`glass-card-strong rounded-3xl ${compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8'}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight text-(--foreground-strong)">{title}</h2>
 
@@ -391,6 +392,7 @@ export default function OrdersSection({
             </article>
           );
         })}
+      </div>
       </div>
     </section>
   );

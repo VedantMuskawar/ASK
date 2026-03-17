@@ -44,11 +44,25 @@ export default function VendorWorkspace() {
   const router = useRouter();
   const { isVendor, isAuthReady, phoneNumber } = useAuth();
   const [selectedSection, setSelectedSection] = useState('workspace');
-  const [linkedVendorID, setLinkedVendorID] = useState('');
-  const [isVendorLookupLoading, setIsVendorLookupLoading] = useState(true);
-  const [vendorLookupError, setVendorLookupError] = useState('');
-  const [hasMarketplaceAgreement, setHasMarketplaceAgreement] = useState(false);
-  const [marketplaceAgreement, setMarketplaceAgreement] = useState(null);
+  const [linkedVendorState, setLinkedVendorState] = useState({
+    lookupPhone: '',
+    linkedVendorID: '',
+    hasMarketplaceAgreement: false,
+    marketplaceAgreement: null,
+    vendorLookupError: '',
+  });
+
+  const shouldLookupVendor = Boolean(isAuthReady && isVendor && phoneNumber);
+
+  const linkedVendorID = shouldLookupVendor ? linkedVendorState.linkedVendorID : '';
+  const hasMarketplaceAgreement = shouldLookupVendor ? linkedVendorState.hasMarketplaceAgreement : false;
+  const marketplaceAgreement = shouldLookupVendor ? linkedVendorState.marketplaceAgreement : null;
+  const vendorLookupError = !isAuthReady || !isVendor
+    ? ''
+    : !phoneNumber
+      ? 'Your account is missing a phone number.'
+      : linkedVendorState.vendorLookupError;
+  const isVendorLookupLoading = shouldLookupVendor ? linkedVendorState.lookupPhone !== phoneNumber : false;
 
   const handleVendorSectionChange = useCallback((section) => {
     setSelectedSection(section);
@@ -79,47 +93,34 @@ export default function VendorWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthReady || !isVendor) {
-      setIsVendorLookupLoading(false);
-      setLinkedVendorID('');
-      setVendorLookupError('');
-      setHasMarketplaceAgreement(false);
-      setMarketplaceAgreement(null);
+    if (!shouldLookupVendor) {
       return;
     }
-
-    if (!phoneNumber) {
-      setIsVendorLookupLoading(false);
-      setLinkedVendorID('');
-      setVendorLookupError('Your account is missing a phone number.');
-      setHasMarketplaceAgreement(false);
-      setMarketplaceAgreement(null);
-      return;
-    }
-
-    setIsVendorLookupLoading(true);
-    setVendorLookupError('');
 
     const unsubscribe = subscribeVendors(
       (vendors) => {
         const linkedVendor = vendors.find((vendor) => phonesMatch(vendor.vendorPhoneNumber, phoneNumber));
-        setLinkedVendorID(linkedVendor?.vendorID ?? '');
-        setHasMarketplaceAgreement(hasCompletedMarketplaceAgreement(linkedVendor));
-        setMarketplaceAgreement(linkedVendor?.documents?.marketplaceAgreement ?? null);
-        setVendorLookupError(linkedVendor ? '' : 'No vendor profile is linked to this account yet.');
-        setIsVendorLookupLoading(false);
+        setLinkedVendorState({
+          lookupPhone: phoneNumber,
+          linkedVendorID: linkedVendor?.vendorID ?? '',
+          hasMarketplaceAgreement: hasCompletedMarketplaceAgreement(linkedVendor),
+          marketplaceAgreement: linkedVendor?.documents?.marketplaceAgreement ?? null,
+          vendorLookupError: linkedVendor ? '' : 'No vendor profile is linked to this account yet.',
+        });
       },
       () => {
-        setLinkedVendorID('');
-        setHasMarketplaceAgreement(false);
-        setMarketplaceAgreement(null);
-        setVendorLookupError('Could not load vendor profile. Please try again.');
-        setIsVendorLookupLoading(false);
+        setLinkedVendorState({
+          lookupPhone: phoneNumber,
+          linkedVendorID: '',
+          hasMarketplaceAgreement: false,
+          marketplaceAgreement: null,
+          vendorLookupError: 'Could not load vendor profile. Please try again.',
+        });
       },
     );
 
     return unsubscribe;
-  }, [isAuthReady, isVendor, phoneNumber]);
+  }, [phoneNumber, shouldLookupVendor]);
 
   if (!isAuthReady) {
     return (

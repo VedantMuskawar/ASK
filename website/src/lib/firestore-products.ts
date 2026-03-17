@@ -3,9 +3,14 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
+  type QueryConstraint,
   type FieldValue,
   type Timestamp,
 } from 'firebase/firestore';
@@ -62,6 +67,14 @@ export interface ProductInput {
   vendorID: string;
 }
 
+export interface SubscribeProductsOptions {
+  onlyActive?: boolean;
+  onlyApproved?: boolean;
+  vendorID?: string;
+  sortBy?: 'nameAsc' | 'priceAsc' | 'priceDesc' | 'newest';
+  maxResults?: number;
+}
+
 function normalizeProductRecord(data: Partial<ProductRecord>, productID: string): ProductDoc {
   const normalizedUnitsCsv = String(data.unitsCsv ?? data.baseUnit ?? '');
   const normalizedBaseUnit = String(data.baseUnit ?? normalizedUnitsCsv.split(',')[0] ?? '').trim();
@@ -95,10 +108,54 @@ function normalizeProductRecord(data: Partial<ProductRecord>, productID: string)
 
 export function subscribeProducts(
   onData: (products: ProductDoc[]) => void,
+  optionsOrOnError: SubscribeProductsOptions | ((error: Error) => void) = {},
   onError?: (error: Error) => void,
 ): () => void {
+  const options =
+    typeof optionsOrOnError === 'function'
+      ? {}
+      : optionsOrOnError;
+
+  const handleError =
+    typeof optionsOrOnError === 'function'
+      ? optionsOrOnError
+      : onError;
+
+  const constraints: QueryConstraint[] = [];
+
+  if (options.onlyActive) {
+    constraints.push(where('isActive', '==', true));
+  }
+
+  if (options.onlyApproved) {
+    constraints.push(where('adminVerificationStatus', '==', 'approved'));
+  }
+
+  if (options.vendorID) {
+    constraints.push(where('vendorID', '==', options.vendorID));
+  }
+
+  if (options.sortBy === 'priceAsc') {
+    constraints.push(orderBy('unitPrice', 'asc'));
+  } else if (options.sortBy === 'priceDesc') {
+    constraints.push(orderBy('unitPrice', 'desc'));
+  } else if (options.sortBy === 'newest') {
+    constraints.push(orderBy('created_at', 'desc'));
+  } else if (options.sortBy === 'nameAsc') {
+    constraints.push(orderBy('name', 'asc'));
+  }
+
+  if (Number.isFinite(options.maxResults) && Number(options.maxResults) > 0) {
+    constraints.push(limit(Math.floor(Number(options.maxResults))));
+  }
+
+  const productsQuery =
+    constraints.length > 0
+      ? query(collection(db, PRODUCTS_COLLECTION), ...constraints)
+      : collection(db, PRODUCTS_COLLECTION);
+
   return onSnapshot(
-    collection(db, PRODUCTS_COLLECTION),
+    productsQuery,
     (snapshot) => {
       const products = snapshot.docs.map((item) => {
         const data = item.data() as Partial<ProductRecord>;
@@ -107,7 +164,7 @@ export function subscribeProducts(
       onData(products);
     },
     (error) => {
-      onError?.(error as Error);
+      handleError?.(error as Error);
     },
   );
 }
